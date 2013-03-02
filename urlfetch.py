@@ -34,7 +34,7 @@ from pydoc import help
 
 
 linkNb = 0
-API_URL = "http://localhost:7500/"
+API_URL = "http://localhost:7501/"
 ERROR_KEY = ''
 MESSAGE_KEY = ''
 ERRORS = dict()
@@ -372,19 +372,21 @@ def main(argv=None):
     global linkNb
 
     while len(varStr) <= MAXI:
+        linkNb += 1
         log.write( 'Info: Trying to reach "'+ s.domain + s.dir + ''.join(varStr) +'"...' )
         ##################### 
         #   MAIN CODE
         #####################
-        http = httplib.HTTPConnection(s.domain)
-        http.request('GET', s.dir + ''.join(varStr))
-        dHeaders = dict(http.getresponse().getheaders())
-
+        try:
+            http = httplib.HTTPConnection(s.domain)
+            http.request('GET', s.dir + ''.join(varStr))
+            dHeaders = dict(http.getresponse().getheaders())
+        except:
+            log.write("| Unable to reach the domain. Maybe it doesn't exists ?")
         # Redirection found
-        if 'location' in dHeaders:
+        if 'location' in dHeaders and s.domain not in dHeaders['location']:
             real = dHeaders['location']
             link = Link(s, ''.join(varStr), real)
-            linkNb += 1
             log.write( '| Info: Result found !' )
 
             try:
@@ -395,8 +397,8 @@ def main(argv=None):
                 if ERROR_KEY in response:              
                     if ERROR_KEY in response and int(response[ERROR_KEY]) == ERRORS['LINK_DUPLICATE']:
                         raise DuplicateLinkException(link)
-                    elif ERR_MESSAGE_KEY in response:
-                        raise WTFException(response[ERR_MESSAGE_KEY])
+                    elif MESSAGE_KEY in response:
+                        raise WTFException(response[MESSAGE_KEY])
                     else:
                         raise WTFException()
                 log.write( '| -> Added link ID '+ str(link.id) )
@@ -405,7 +407,7 @@ def main(argv=None):
             except DuplicateLinkException, duplicate_e:
                 log.write( '| -> '+ str(duplicate_e) )   
                 now = datetime.now(pytz.utc)
-                # Test if the link have been updated in more than a month
+                # Test if the link have been updated in more than a month (disabled in dev mode)
                 if iso8601.parse_date(response['last_edit']) < now.replace(hour=now.hour+1):
                     # Test if real link have changed
                     if response['real'] != link.real:
