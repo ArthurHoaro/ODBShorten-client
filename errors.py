@@ -1,13 +1,5 @@
 #!/usr/bin/python
-from urlfetch import Link
-
-ERROR_KEY = 'error'
-ERR_MESSAGE_KEY = 'message'
-OK_KEY = 'ok'
-ERROR_CODE = {
-		'LINK_DUPLICATE': 1000,
-		'UNDEFINED_LINK': 1021,
-	}
+#from urlfetch import Link
 
 class DuplicateLinkException(Exception):
 	"""
@@ -18,9 +10,9 @@ class DuplicateLinkException(Exception):
 		self.link = link
 
 	def __str__(self):
-		return 'Warning: Link '+ self.link.strUrl() +' already exists'
+		return 'Warning: Link ID '+ str(self.link.id) +' already exists'
 
-class LinkGetException(Exception):
+class NothingUpdateException(Exception):
 	"""
 	TODO
 	"""
@@ -29,18 +21,7 @@ class LinkGetException(Exception):
 		self.link = link
 
 	def __str__(self):
-		return 'ERROR: Unable to retrieve link data in database for "'+ self.link.strUrl() +'"'
-
-class AddLinkHistoryException(Exception):
-	"""
-	TODO
-	"""
-
-	def __init__(self, link):
-		self.link = link
-
-	def __str__(self):
-		return 'ERROR: Unable to write in "link_history" for the link "'+ self.link.strUrl() +'"'
+		return 'ERROR: Link ID "'+ str(self.link.id) +'": Nothing updated'
 
 class WTFException(Exception):
 	"""
@@ -51,7 +32,7 @@ class WTFException(Exception):
 
 	def __str__(self):
 		if self.message is None:
-			return 'Error: An imprevisible error occured. Exiting program.'
+			return 'ERROR: An imprevisible error occured. Exiting program.'
 		else:
 			return self.message
 

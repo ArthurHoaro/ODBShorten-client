@@ -3,8 +3,9 @@
 # Open Database of Shortened Links client 
 # ODBShorten client
 # ===================================================
-# Because the Internet is the new memory of Humanity,
-# It can not be lost by stupidity.
+# "Because the Internet is the new memory of Humanity,
+# It can not be lost by stupidity."
+# Learn more about ODBShorten project: http://wiki.hoa.ro/doku.php?id=projects:obdshorten
 #
 # ODBShorten client is used to populate ODBShorten 
 # by crawling shortened links
@@ -13,7 +14,7 @@
 # Version: 0.1.0-dev
 # Licence: GNU Lesser General Public License <http://www.gnu.org/licenses/lgpl-3.0.txt>
 # Code: URL
-# Documentation: URL
+# Documentation: http://wiki.hoa.ro/doku.php?id=projects:obdshorten:client
 # 
 # ODBShorten client and ODBShorten API are currently
 # in development mode and should not be used in another way
@@ -34,6 +35,9 @@ from pydoc import help
 
 linkNb = 0
 API_URL = "http://localhost:7500/"
+ERROR_KEY = ''
+MESSAGE_KEY = ''
+ERRORS = dict()
 
 class APICall(object):
     """Handle communication between client and ODBShorten"""
@@ -42,36 +46,53 @@ class APICall(object):
         """Returns a dict from the JSON file returned by the given API 'url'"""
         return json.load(urllib2.urlopen(API_URL + url))
 
-    def getShortener(self, shortenerName):
+    def getShortenerByName(self, shortenerName):
         """Returns values to create a Shortener according to 'shortenerName' given"""
-        return self.make('shortener?name='+shortenerName)
+        return self.make('shortener/get?name='+shortenerName)
 
-    def addLink(self, link):
+    def getShortenerById(self, idShortener):
+        """Returns values to create a Shortener according to 'shortenerName' given"""
+        return self.make('shortener/get?id='+idShortener)
+
+    def addLink(self, link, useName=False):
         """Add a real link into the database through API with the given 'link' (Link type)
-        Need link.shortener, link.varPart and link.real set"""
-        return self.make('link_add?shortener='+ str(link.shortener.id) +'&var_part='+ link.varPart +'&real='+ self.urlEncode(link.real) )
+        Need link.shortener (with id or name), link.varPart and link.real set"""
+        if useName is True or (link.shortener.id is None and link.shortener.name is not None):
+            return self.make('link/add?shortener='+ str(link.shortener.name) +'&var_part='+ link.varPart +'&real='+ self.urlEncode(link.real) )
+        else:
+            return self.make('link/add?shortener='+ str(link.shortener.id) +'&var_part='+ link.varPart +'&real='+ self.urlEncode(link.real) )
 
     def updateLink(self, link):
         """Update a link into the database through API with the given 'link' (Link type)
         Need link.id and link.real set"""
-        return self.make('link_update?id_link='+ str(link.id) +'&real='+  self.urlEncode(link.real))
+        return self.make('link/update?id_link='+ str(link.id) +'&real='+  self.urlEncode(link.real))
 
     def getLastEdit(self, link):
         """Returns the id, the real link and date of last edit of the given 'link' (Link type) through API
         Need link.shortener and varPart set"""
-        return self.make('link_get_last?shortener='+ str(link.shortener.id) +'&var_part='+ link.varPart)
+        return self.make('link/get/byvar?shortener='+ str(link.shortener.id) +'&var_part='+ link.varPart)
 
     def urlEncode(self, url):
         """Return encoded link from the given 'url' in order to send it through HTTP API"""
         return urllib2.quote(url)
+
+def loadErrors():
+    try:
+        data = json.load(urllib2.urlopen(API_URL + 'errors.json'))
+        global ERROR_KEY, MESSAGE_KEY, ERRORS
+        ERROR_KEY = data['ERROR_KEY']
+        MESSAGE_KEY = data['MESSAGE_KEY']
+        ERRORS = data['ERROR_CODES']
+        return True
+    except Exception, e:
+        return False
 
 class ShortenerFactory(object):
     """Create Shorteners from its name, using the API"""   
 
     def createShortener(self, shortener):
         """Return a Shortener object from the 'shortener' name given"""
-
-        data = APICall().getShortener(shortener)
+        data = APICall().getShortenerByName(shortener)
         if ERROR_KEY in data:
             return False
 
@@ -79,45 +100,32 @@ class ShortenerFactory(object):
         domain = data['domain']
         sdir = data['subdir']
         options = {}
-        if 'optNum' in data['options']:
-            options['optNum'] = data['options']['optNum']
-        if 'optAlpha' in data['options']:
-            options['optAlpha'] = data['options']['optAlpha']
-        if 'optCase' in data['options']:
-            options['optCase'] = data['options']['optCase']
+        if 'varnum' in data:
+            options['optNum'] = data['varnum']
+        if 'varalpha' in data:
+            options['optAlpha'] = data['varalpha']
+        if 'varcase' in data:
+            options['optCase'] = data['varcase']
 
-        return Shortener(id, domain, sdir, **options)
-        
-    # def createShortener(self, shortener):
-    #     db = DBFactory.get_instance()
-    #     cur = db.cursor(cursor_factory = psycopg2.extras.RealDictCursor)
-    #     sql = "SELECT id_shortener, domain, subdir, varalpha, varcase, varnum "
-    #     sql += "FROM shortener "
-    #     sql += "WHERE name=%s;"
-    #     data = (shortener,)
-    #     cur.execute(sql, data)
-
-    #     result = cur.fetchone()
-    #     return Shortener(result['id_shortener'], result['domain'], result['subdir'], optAlpha=result['varalpha'], optCase=result['varcase'], optNum=result['varnum'])
-
-
-
+        return Shortener(id, shortener, domain, sdir, **options)
+    
 class Shortener(object):
     """Shortener object
     Attributes:
     - id [int]
     - domain [str]
-    - directory [str] (ie: 'http://short.en/link/afgkd', '/link/' is subdir)
+    - directory [str] (e.g. 'http://short.en/link/afgkd', '/link/' is subdir)
     - options [booleans]:
         * optApha: allow alphabetic characters
         * optCase: alphabetic characters are case sensitive
         * optNum : allow numeric characters"""
     
-    def __init__(self, id, domain, sdir, **options):
+    def __init__(self, id, name, domain, sdir, **options):
         """"Create a shortener"""
         # self._domain = domain
         # self._dir = sdir
         self.id = id
+        self.name = name
         self.domain = domain
         self.dir = sdir
         self._optNum = True
@@ -269,7 +277,7 @@ class Logging(object):
 
 def main(argv=None):
     """Main
-    <shortener_name> [-f <str_size_mini>] [-t <str_size_maxi>] [-b <init_string>]
+    Usage: urlfetch.py -s <shortener_name> [-f <str_size_mini>] [-t <str_size_maxi>] [-b <init_string>]
     Arguments: 
         * -s, --shortener
             Shortener name
@@ -324,6 +332,11 @@ def main(argv=None):
     else:
         MAXI = int(MAXI)
 
+    if loadErrors() is False:
+        log.write('ERROR: Unable to create ERROR codes from JSON')
+        log.write('Exit program')
+        sys.exit()
+
     sfactory = ShortenerFactory()
     s = sfactory.createShortener(shortename)
     print s
@@ -359,7 +372,7 @@ def main(argv=None):
     global linkNb
 
     while len(varStr) <= MAXI:
-        log.write( 'Info: Trying to reach '+ s.domain + s.dir + ''.join(varStr) +' ...' )
+        log.write( 'Info: Trying to reach "'+ s.domain + s.dir + ''.join(varStr) +'"...' )
         ##################### 
         #   MAIN CODE
         #####################
@@ -376,36 +389,39 @@ def main(argv=None):
 
             try:
                 response = APICall().addLink(link)
-                # print response
-                # print 'Set ID !' + str(response)
-                if 'id' in response:
-                    
-                    link.id = response['id']
+                if 'id_link' in response:                    
+                    link.id = response['id_link']
 
-                if OK_KEY not in response:              
-                    if ERROR_KEY in response and int(response[ERROR_KEY]) == ERROR_CODE['LINK_DUPLICATE']:
+                if ERROR_KEY in response:              
+                    if ERROR_KEY in response and int(response[ERROR_KEY]) == ERRORS['LINK_DUPLICATE']:
                         raise DuplicateLinkException(link)
                     elif ERR_MESSAGE_KEY in response:
                         raise WTFException(response[ERR_MESSAGE_KEY])
                     else:
                         raise WTFException()
-                log.write( '| -> Added: ' + str(link.strUrl()) )
+                log.write( '| -> Added link ID '+ str(link.id) )
 
             # Link already exists
             except DuplicateLinkException, duplicate_e:
                 log.write( '| -> '+ str(duplicate_e) )   
                 now = datetime.now(pytz.utc)
                 # Test if the link have been updated in more than a month
-                if iso8601.parse_date(response['last_edit']) < now.replace(hour=now.hour-1):
+                if iso8601.parse_date(response['last_edit']) < now.replace(hour=now.hour+1):
                     # Test if real link have changed
                     if response['real'] != link.real:
-                        log.write( '| -> Update needed...' )
-                        update = APICall().updateLink(link)
-                        if ERROR_KEY in update:
-                            if int(update[ERROR_KEY]) == 1030:           
-                                raise AddLinkHistoryException(link)
-                            else:
-                                raise WTFException(update['message']) 
+                        log.write( '| -> Update needed on link ID '+ str(link.id) +'...' )
+                        try:
+                            update = APICall().updateLink(link)
+                            if ERROR_KEY in update:
+                                if int(update[ERROR_KEY]) == ERRORS['LINK_NOTHING_UPDATE']:           
+                                    raise NothingUpdateException(link)
+                                else:
+                                    raise WTFException(update['message']) 
+                        except UpdateLinkException, ule:
+                            log.write('| '+ str(ule))
+                        except WTFException, wtfe:
+                            log.write( '| '+ str(wtfe))  
+                            sys.exit()    
                         log.write( '| -> Link updated' )
                     else:
                         log.write('| -> Real link did not change') 
