@@ -11,8 +11,8 @@ by crawling shortened links
 * Author: Arthur Hoaro <arthur@hoa.ro> <website>
 * Version: 0.1.0-dev
 * Licence: GNU Lesser General Public License <http://www.gnu.org/licenses/lgpl-3.0.txt>
-* Code: URL
-* Documentation: URL
+* Code: https://github.com/ArthurHoaro/ODBShorten-client
+* Documentation: http://wiki.hoa.ro/doku.php?id=projets:obdshorten
 
 ODBShorten client and ODBShorten API are currently
 in development mode and should not be used in another way
