@@ -34,7 +34,7 @@ from pydoc import help
 
 
 linkNb = 0
-API_URL = "http://localhost:7501/"
+API_URL = "http://localhost:7500/"
 ERROR_KEY = ''
 MESSAGE_KEY = ''
 ERRORS = dict()
@@ -72,6 +72,10 @@ class APICall(object):
         Need link.shortener and varPart set"""
         return self.make('link/get/byvar?shortener='+ str(link.shortener.id) +'&var_part='+ link.varPart)
 
+    def getLastLink(self, shortener):
+        """Returrn the link of a shortener"""
+        return self.make('link/get/last?shortener='+ str(shortener.id))
+
     def urlEncode(self, url):
         """Return encoded link from the given 'url' in order to send it through HTTP API"""
         return urllib2.quote(url)
@@ -90,13 +94,23 @@ def loadErrors():
 class ShortenerFactory(object):
     """Create Shorteners from its name, using the API"""   
 
-    def createShortener(self, shortener):
-        """Return a Shortener object from the 'shortener' name given"""
-        data = APICall().getShortenerByName(shortener)
-        if ERROR_KEY in data:
-            return False
+    def createShortenerByName(self, shortername):
+        data = APICall().getShortenerByName(shortername)
+        return self.createShortener(data)
 
+    def createShortenerByid(self, shorterid):
+        data = APICall().getShortenerById(shorterid)
+        return self.createShortener(data)
+        
+
+    def createShortener(self, data):
+        """Return a Shortener object from the 'shortener' name given"""        
+
+        if ERROR_KEY in data:
+            raise WTFException(data[MESSAGE_KEY])
+        print data
         id = data['id_shortener']
+        name = data['name']
         domain = data['domain']
         sdir = data['subdir']
         options = {}
@@ -106,8 +120,12 @@ class ShortenerFactory(object):
             options['optAlpha'] = data['varalpha']
         if 'varcase' in data:
             options['optCase'] = data['varcase']
+        if 'len_mini' in data:
+            options['len_mini'] = data['len_mini']
+        if 'len_maxi' in data:
+            options['len_maxi'] = data['len_maxi']
 
-        return Shortener(id, shortener, domain, sdir, **options)
+        return Shortener(id, name, domain, sdir, **options)
     
 class Shortener(object):
     """Shortener object
@@ -131,6 +149,9 @@ class Shortener(object):
         self._optNum = True
         self._optAlpha = True
         self._optCase = True
+        self._len_mini = 1
+        self._len_maxi = 8
+
         for key, value in options.items():
             try:
                 attr = getattr(self, "_set_"+str(key))
@@ -185,6 +206,21 @@ class Shortener(object):
     def _set_charset(self):
         self.updateCharset()
     charset = property(_get_charset, _set_charset)
+
+    def _get_len_mini(self):
+        return self._len_mini
+    def _set_len_mini(self, len):
+        self._len_mini = len
+    len_mini = property(_get_len_mini, _set_len_mini)
+
+    def _get_len_maxi(self):
+        return self._len_maxi
+    def _set_len_maxi(self, len):
+        if len < 1:
+            len = 1
+        self._len_maxi = len
+    len_maxi = property(_get_len_maxi, _set_len_maxi)
+
 
     def set_options(self, **options):
         for key, value in options.items():
@@ -277,101 +313,129 @@ class Logging(object):
 
 def main(argv=None):
     """Main
-    Usage: urlfetch.py -s <shortener_name> [-f <str_size_mini>] [-t <str_size_maxi>] [-b <init_string>]
+    Usage: urlfetch.py -s <shortener> [-f <str_size_mini>] [-t <str_size_maxi>] [-b <init_string>]
     Arguments: 
-        * -s, --shortener
-            Shortener name
+        * -s, --shortener, -i, --shortener-id
+            Shortener name (-s) or id (-i)
         * -f, --from
             Mininal length of the variable string
         * -t, --to
             Maximal length of the variable string
         * -b, --base
-            Initialize crawling from 'base' string"""
+            Initialize crawling from 'base' string
+        * --auto-append
+            Start from the last link stored in the DB"""
 
     if argv is None:
         argv = sys.argv
-    usage = '[SYNTAX] Usage: '+ argv[0] +' -s <shortener_name> [-f <str_mini>] [-t <str_maxi>] [-b <init_string>]' 
+    usage = '[SYNTAX] Usage: '+ argv[0] +' -s <shortener_name> [-f <str_mini>] [-t <str_maxi>] [-b <init_string>] [--auto-append]' 
     log = Logging()
 
     try:
-        opts, args = getopt.getopt(argv[1:], "hs:f:t:b:", ["help=", "shortener=", "from=", "to=", "base="])
-    except getopt.GetoptError:
+        opts, args = getopt.getopt(argv[1:], "h:s:i:f:t:b:", ["help=", "shortener=", "shortener-id", "from=", "to=", "base=", "auto-append"])
+    except getopt.GetoptError, e:
         print usage
+        print str(e)
         sys.exit(2)
 
-    if ('-s' or '--shortener') not in dict(opts):
+    if ('-h' or '--help') in dict(opts):
+        print main.__doc__
+        sys.exit()
+
+    # Crazy test from http://stackoverflow.com/questions/7183869/python-check-if-any-list-element-is-a-key-in-a-dictionary
+    if len(dict((option, dict(opts)[option]) for option in ['-s', '--shortener' '-i', '--shortener-id'] if option in dict(opts))) > 0:
         print usage 
         sys.exit()
 
-    MINI = MAXI = varStr = None
+    MINI = MAXI = varStr = isAutoAppend = shortename = shortenid = None
 
     for opt, arg in opts:
         if opt in ("-s", "--shortener"):
             shortename = arg
+        if opt in ("-i", "--shortener-id"):
+            shortenid = arg
         elif opt in ("-f", "--from"):
             MINI = arg
         elif opt in ('-t', '--to'):
             MAXI = arg
         elif opt in ('-b', '--base'):
             varStr = list(arg)
+        elif opt in '--auto-append':
+            isAutoAppend = True
         else:
             print usage 
+            print str(opt) + '  -  '+ str(arg)
             sys.exit()
 
     log.write( '================ URLFetch program starting ================' )
-
-    if MINI is None:
-        MINI = 0
-        log.write('Notice: No minimum value set. Using default '+ str(MINI))
-    else:
-        MINI = int(MINI)
-
-    if MAXI is None:
-        MAXI = 8
-        log.write('Notice: No maximum value set. Using default '+ str(MAXI))
-    else:
-        MAXI = int(MAXI)
 
     if loadErrors() is False:
         log.write('ERROR: Unable to create ERROR codes from JSON')
         log.write('Exit program')
         sys.exit()
 
-    sfactory = ShortenerFactory()
-    s = sfactory.createShortener(shortename)
-    print s
-    # sys.exit()
-    if s is False:
-        log.write('ERROR: Shortener "' + shortename + '"" not found')
-        log.write('Exit program')
-        sys.exit()
+    try:
+        sfactory = ShortenerFactory()
+        if shortename is not None:
+            print 'aa'
+            s = sfactory.createShortenerByName(shortename)
+        else:
+            s = sfactory.createShortenerByid(shortenid)
+            print 'bb'
 
-    if varStr is None:
-        varStr = list(s.charset[0])
+        if s is None:
+            log.write('ERROR: Shortener not found')
+            log.write('Exit program')
+            sys.exit()
+    except WTFException, wtf:
+        log.write( '-INIT- '+ str(wtf))  
+        sys.exit()  
+    # except Exception, e:
+    #     log.write('ERROR: Unable to build the shortener - '+ str(e))
+    #     sys.exit()
 
-    if len(varStr) < MINI:
+    
+
+    if MINI is not None:
+        s.len_mini = MINI
+    if MAXI is not None:
+        s.len_maxi = MAXI
+    
+    crawler = Crawler(s);
+
+    if isAutoAppend is True:
+        try:
+            lastlink = APICall().getLastLink(s)
+            if ERROR_KEY in lastlink:
+                raise WTFException(lastlink[MESSAGE_KEY])
+            else:
+                varStr = list(lastlink['var_part'])
+        except WTFException, wtf:
+            log.write('| ERROR: Unable to retrieve last link. Continue')
+            varStr = list()
+
+    if len(varStr) < s._len_mini:
         varStr = ''
-        for i in range(MINI):
+        for i in range(s.len_mini):
             varStr += s.charset[0]
         varStr = list(varStr)
 
     log.write( '| Starting information ')
     log.write( '| --------------------- ')
-    log.write( '| - Shortener: '+ shortename )
-    log.write( '| - From: '+ str(MINI) )
-    log.write( '| - To: '+ str(MAXI) )
+    log.write( '| - Shortener: '+ s.name )
+    log.write( '| - From: '+ str(s.len_mini) )
+    log.write( '| - To: '+ str(s.len_maxi) )
     log.write( '| - Domain: '+ str(s.domain) )
     log.write( '| - Subdir: '+ str(s.dir) )
     log.write( '| - Alpha: '+ str(s.optAlpha) )
     log.write( '| - Case: '+ str(s.optCase) )
     log.write( '| - Num: '+ str(s.optNum) )
-    log.write( '| - Between: '+ str(MINI) +' and '+ str(MAXI) +'chars')
+    log.write( '| - Between: '+ str(s.len_mini) +' and '+ str(s.len_maxi) +' chars')
     log.write( '| - Base: '+ ''.join(varStr) )
-
-    crawler = Crawler(s);
+    
     global linkNb
 
-    while len(varStr) <= MAXI:
+    while len(varStr) <= s.len_maxi:
         linkNb += 1
         log.write( 'Info: Trying to reach "'+ s.domain + s.dir + ''.join(varStr) +'"...' )
         ##################### 
@@ -384,7 +448,7 @@ def main(argv=None):
         except:
             log.write("| Unable to reach the domain. Maybe it doesn't exists ?")
         # Redirection found
-        if 'location' in dHeaders and s.domain not in dHeaders['location']:
+        if 'location' in dHeaders and str(s.domain) not in dHeaders['location']:
             real = dHeaders['location']
             link = Link(s, ''.join(varStr), real)
             log.write( '| Info: Result found !' )
