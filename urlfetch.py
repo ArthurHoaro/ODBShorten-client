@@ -22,6 +22,7 @@
 
 import urllib2
 import httplib
+import socket
 import sys
 import getopt
 import json
@@ -32,9 +33,12 @@ from errors import *
 import base64
 from pydoc import help
 
-
+DEBUG = True
 linkNb = 0
-API_URL = "http://localhost:7500/"
+API_PROTOCOL = 'http'
+API_DOMAIN = "localhost"
+API_PORT = 7500
+API_URL = API_PROTOCOL + '://' + API_DOMAIN +':'+ str(API_PORT) +'/'
 ERROR_KEY = ''
 MESSAGE_KEY = ''
 ERRORS = dict()
@@ -80,6 +84,18 @@ class APICall(object):
         """Return encoded link from the given 'url' in order to send it through HTTP API"""
         return urllib2.quote(url)
 
+    def connectionStatus(self):
+        """Check if the API is available"""
+        http = httplib.HTTPConnection(API_DOMAIN +':'+ str(API_PORT))
+        try:
+            http.request('GET', '/')
+        except (httplib.HTTPException, socket.error) as ex:
+            print 'The API is unreachable. If your Internet connection is working, try to visit '+ API_URL +'/status'
+            print 'Program exit'
+            sys.exit()
+        except Exception, e:
+            print str(e)
+
 def loadErrors():
     try:
         data = json.load(urllib2.urlopen(API_URL + 'errors.json'))
@@ -89,6 +105,7 @@ def loadErrors():
         ERRORS = data['ERROR_CODES']
         return True
     except Exception, e:
+        print e
         return False
 
 class ShortenerFactory(object):
@@ -307,9 +324,16 @@ class Crawler(object):
     charset = property(_get_charset)
 
 class Logging(object):
-    def write(self, msg):
-        print '['+ str(datetime.now()) +'] ' + str(linkNb) + ' - '+ str(msg)
+    def __init__(self):
+        self.date = datetime.now().strftime('%Y-%m-%d-%H%M%S')
+        # if shortener is not None:
+        #     self.shortename = shortener.name
+        # else:
+        #     self.shortename = 'unknown'
 
+    def write(self, msg):
+        # if DEBUG is True:
+        print '['+ str(datetime.now()) +'] ' + str(linkNb) + ' - '+ str(msg)
 
 def main(argv=None):
     """Main
@@ -343,16 +367,17 @@ def main(argv=None):
         sys.exit()
 
     # Crazy test from http://stackoverflow.com/questions/7183869/python-check-if-any-list-element-is-a-key-in-a-dictionary
-    if len(dict((option, dict(opts)[option]) for option in ['-s', '--shortener' '-i', '--shortener-id'] if option in dict(opts))) > 0:
+    if len(dict((option, dict(opts)[option]) for option in ['-s', '--shortener', '-i', '--shortener-id'] if option in dict(opts))) == 0:
         print usage 
         sys.exit()
 
     MINI = MAXI = varStr = isAutoAppend = shortename = shortenid = None
+    varStr = list()
 
     for opt, arg in opts:
         if opt in ("-s", "--shortener"):
             shortename = arg
-        if opt in ("-i", "--shortener-id"):
+        elif opt in ("-i", "--shortener-id"):
             shortenid = arg
         elif opt in ("-f", "--from"):
             MINI = arg
@@ -363,11 +388,14 @@ def main(argv=None):
         elif opt in '--auto-append':
             isAutoAppend = True
         else:
+            print 'Unknown option "'+ str(opt) +'"'
             print usage 
-            print str(opt) + '  -  '+ str(arg)
             sys.exit()
 
     log.write( '================ URLFetch program starting ================' )
+    log.write( 'Checking API status...')
+    APICall().connectionStatus()
+    log.write( 'Connection succeed' )
 
     if loadErrors() is False:
         log.write('ERROR: Unable to create ERROR codes from JSON')
@@ -390,10 +418,6 @@ def main(argv=None):
     except WTFException, wtf:
         log.write( '-INIT- '+ str(wtf))  
         sys.exit()  
-    # except Exception, e:
-    #     log.write('ERROR: Unable to build the shortener - '+ str(e))
-    #     sys.exit()
-
     
 
     if MINI is not None:
@@ -445,8 +469,9 @@ def main(argv=None):
             http = httplib.HTTPConnection(s.domain)
             http.request('GET', s.dir + ''.join(varStr))
             dHeaders = dict(http.getresponse().getheaders())
-        except:
+        except (httplib.HTTPException, socket.error):
             log.write("| Unable to reach the domain. Maybe it doesn't exists ?")
+
         # Redirection found
         if 'location' in dHeaders and str(s.domain) not in dHeaders['location']:
             real = dHeaders['location']
@@ -472,7 +497,7 @@ def main(argv=None):
                 log.write( '| -> '+ str(duplicate_e) )   
                 now = datetime.now(pytz.utc)
                 # Test if the link have been updated in more than a month (disabled in dev mode)
-                if iso8601.parse_date(response['last_edit']) < now.replace(hour=now.hour+1):
+                if iso8601.parse_date(response['last_edit']) < now.replace(month=now.month-1):
                     # Test if real link have changed
                     if response['real'] != link.real:
                         log.write( '| -> Update needed on link ID '+ str(link.id) +'...' )
