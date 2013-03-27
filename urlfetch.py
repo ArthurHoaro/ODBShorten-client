@@ -405,18 +405,16 @@ def main(argv=None):
     try:
         sfactory = ShortenerFactory()
         if shortename is not None:
-            print 'aa'
             s = sfactory.createShortenerByName(shortename)
         else:
             s = sfactory.createShortenerByid(shortenid)
-            print 'bb'
 
         if s is None:
             log.write('ERROR: Shortener not found')
             log.write('Exit program')
             sys.exit()
     except WTFException, wtf:
-        log.write( '-INIT- '+ str(wtf))  
+        log.write( '-UNEXPECTED ERROR- '+ str(wtf))  
         sys.exit()  
     
 
@@ -497,7 +495,7 @@ def main(argv=None):
                 log.write( '| -> '+ str(duplicate_e) )   
                 now = datetime.now(pytz.utc)
                 # Test if the link have been updated in more than a month (disabled in dev mode)
-                if iso8601.parse_date(response['last_edit']) < now.replace(month=now.month-1):
+                if iso8601.parse_date(response['last_edit']) < now.replace(month=now.month+1):
                     # Test if real link have changed
                     if response['real'] != link.real:
                         log.write( '| -> Update needed on link ID '+ str(link.id) +'...' )
@@ -524,7 +522,7 @@ def main(argv=None):
         else:
             log.write('| Info: Undefined')            
         varStr = crawler.next(varStr)
-    print cpt
+    print linkNb
     
 if __name__ == "__main__":
     main(sys.argv)
